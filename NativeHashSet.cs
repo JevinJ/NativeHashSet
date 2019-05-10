@@ -76,6 +76,7 @@ namespace NativeContainers {
             DisposeSentinel.Dispose(ref m_Safety, ref m_DisposeSentinel);
 #endif
             NativeHashSetData.DeallocateHashSet(buffer, allocator);
+            buffer = null;
         }
 
         public void Clear() {
