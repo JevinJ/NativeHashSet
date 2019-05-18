@@ -183,25 +183,6 @@ namespace NativeContainers {
             return false;
         }
 
-
-        public bool TryRemoveThreaded<T>(T value, int threadIndex) where T : IEquatable<T> {
-            int* buckets = (int*)this.buckets;
-            int* nextPtrs = (int*)this.next;
-            int bucketIdx = value.GetHashCode() & bucketCapacityMask;
-            int valuesIdx = buckets[bucketIdx];
-            int prevValuesIdx;
-
-            do {
-                valuesIdx = buckets[bucketIdx];
-            } while(valuesIdx != 0);
-            while(valuesIdx != 0) {
-                if(valuesIdx < 0) {
-                    valuesIdx = buckets[bucketIdx];
-                }
-            }
-            return false;
-        }
-
         static int CalculateDataSize<T>(
         int capacity, int bucketCapacity, out int nextOffset, out int bucketOffset) where T : struct {
             nextOffset = (UnsafeUtility.SizeOf<T>() * capacity) + JobsUtility.CacheLineSize - 1;
