@@ -190,7 +190,7 @@ namespace NativeContainers {
 
             bucketOffset = nextOffset + (sizeof(int) * capacity) + JobsUtility.CacheLineSize - 1;
             bucketOffset -= bucketOffset % JobsUtility.CacheLineSize;
-            return bucketOffset + (UnsafeUtility.SizeOf<int>() * bucketCapacity);
+            return bucketOffset + (UnsafeUtility.SizeOf<T>() * bucketCapacity);
         }
 
         int FindFirstFreeIndex<T>(Allocator allocator) where T : struct {
