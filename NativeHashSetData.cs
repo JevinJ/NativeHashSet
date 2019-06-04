@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Unity.Collections;
@@ -6,7 +6,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine.Assertions;
-
+ 
 namespace NativeContainers {
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct NativeHashSetData {
@@ -15,15 +15,15 @@ namespace NativeContainers {
         byte* buckets;
         int valueCapacity;
         int bucketCapacityMask;
-        
+ 
         // Adding padding to ensure remaining fields are on separate cache-lines
         fixed byte padding[60];
         fixed int firstFreeTLS[JobsUtility.MaxJobThreadCount * IntsPerCacheLine];
         int allocatedIndexLength;
         const int IntsPerCacheLine = JobsUtility.CacheLineSize / sizeof(int);
-
+ 
         public int Capacity => valueCapacity;
-
+ 
         public int Length {
             get {
                 int* nextPtrs = (int*)next;
@@ -35,9 +35,9 @@ namespace NativeContainers {
                 return math.min(valueCapacity, allocatedIndexLength) - freeListSize;
             }
         }
-
+ 
         static int DoubleCapacity(int capacity) => capacity == 0 ? 1 : capacity * 2;
-
+ 
         public static void AllocateHashSet<T>(
         int capacity, Allocator label, out NativeHashSetData* buffer) where T : struct {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -46,20 +46,20 @@ namespace NativeContainers {
 #endif
             var data = (NativeHashSetData*)UnsafeUtility.Malloc(
                 sizeof(NativeHashSetData), UnsafeUtility.AlignOf<NativeHashSetData>(), label);
-
+ 
             int bucketCapacity = math.ceilpow2(capacity * 2);
             data->valueCapacity = capacity;
             data->bucketCapacityMask = bucketCapacity - 1;
-            
+     
             int nextOffset, bucketOffset;
             int totalSize = CalculateDataSize<T>(capacity, bucketCapacity, out nextOffset, out bucketOffset);
-            
+     
             data->values = (byte*)UnsafeUtility.Malloc(totalSize, JobsUtility.CacheLineSize, label);
             data->next = data->values + nextOffset;
             data->buckets = data->values + bucketOffset;
             buffer = data;
         }
-
+ 
         public static void DeallocateHashSet(NativeHashSetData* data, Allocator allocator) {
             UnsafeUtility.Free(data->values, allocator);
             data->values = null;
@@ -67,17 +67,17 @@ namespace NativeContainers {
             data->next = null;
             UnsafeUtility.Free(data, allocator);
         }
-        
-        public void Clear<T>() where T : struct {
+ 
+        public void Clear() {
             UnsafeUtility.MemClear((int*)buckets, sizeof(int) * (bucketCapacityMask + 1));
-            UnsafeUtility.MemClear((int*)next, UnsafeUtility.SizeOf<T>() * valueCapacity);
+            UnsafeUtility.MemClear((int*)next, sizeof(int) * valueCapacity);
             fixed(int* firstFreeTLS = this.firstFreeTLS) {
                 UnsafeUtility.MemClear(
                     firstFreeTLS, sizeof(int) * (JobsUtility.MaxJobThreadCount * IntsPerCacheLine));
             }
             allocatedIndexLength = 0;
         }
-        
+ 
         public void GetValueArray<T>(NativeArray<T> result) where T : struct {
             var buckets = (int*)this.buckets;
             var nextPtrs = (int*)next;
@@ -92,12 +92,12 @@ namespace NativeContainers {
             }
             Assert.AreEqual(result.Length, outputIndex);
         }
-
+ 
         public bool TryAdd<T>(ref T value, Allocator allocator) where T : struct, IEquatable<T> {
             if(Contains(ref value)) {
                 return false;
             }
-
+ 
             int valuesIdx = FindFirstFreeIndex<T>(allocator);
             UnsafeUtility.WriteArrayElement(values, valuesIdx, value);
             // Add the index to the hashset
@@ -108,7 +108,7 @@ namespace NativeContainers {
             buckets[bucketIndex] = valuesIdx + 1;
             return true;
         }
-        
+ 
         public bool TryAddThreaded<T>(ref T value, int threadIndex) where T : IEquatable<T> {
             if(Contains(ref value)) {
                 return false;
@@ -116,7 +116,7 @@ namespace NativeContainers {
             // Allocate an entry from the free list
             int idx = FindFreeIndexFromTLS(threadIndex);
             UnsafeUtility.WriteArrayElement(values, idx, value);
-
+ 
             // Add the index to the hashset
             int* buckets = (int*)this.buckets;
             int bucket = value.GetHashCode() & bucketCapacityMask;
@@ -154,14 +154,14 @@ namespace NativeContainers {
             }
             return false;
         }
-        
+ 
         public bool TryRemove<T>(T key) where T : struct, IEquatable<T> {
             int* buckets = (int*)this.buckets;
             int* nextPtrs = (int*)next;
             int bucketIdx = key.GetHashCode() & bucketCapacityMask;
             int valuesIdx = buckets[bucketIdx] - 1;
             int prevValuesIdx = -1;
-
+ 
             while(valuesIdx >= 0 && valuesIdx < valueCapacity) {
                 if(UnsafeUtility.ReadArrayElement<T>(values, valuesIdx).Equals(key)) {
                     if(prevValuesIdx == -1) {
@@ -182,21 +182,21 @@ namespace NativeContainers {
             }
             return false;
         }
-
+ 
         static int CalculateDataSize<T>(
         int capacity, int bucketCapacity, out int nextOffset, out int bucketOffset) where T : struct {
             nextOffset = (UnsafeUtility.SizeOf<T>() * capacity) + JobsUtility.CacheLineSize - 1;
             nextOffset -= nextOffset % JobsUtility.CacheLineSize;
 
-            bucketOffset = nextOffset + (UnsafeUtility.SizeOf<T>() * capacity) + JobsUtility.CacheLineSize - 1;
+            bucketOffset = nextOffset + (sizeof(int) * capacity) + JobsUtility.CacheLineSize - 1;
             bucketOffset -= bucketOffset % JobsUtility.CacheLineSize;
             return bucketOffset + (sizeof(int) * bucketCapacity);
         }
-
+ 
         int FindFirstFreeIndex<T>(Allocator allocator) where T : struct {
             int valuesIdx;
             int* nextPtrs = (int*)next;
-
+ 
             // Try to find an index in another TLS.
             if(allocatedIndexLength >= valueCapacity && firstFreeTLS[0] == 0) {
                 for(int tls = 1; tls < JobsUtility.MaxJobThreadCount; ++tls) {
@@ -228,7 +228,7 @@ namespace NativeContainers {
             }
             return valuesIdx;
         }
-
+ 
         int FindFreeIndexFromTLS(int threadIndex) {
             int idx;
             int* nextPtrs = (int*)next;
@@ -251,13 +251,13 @@ namespace NativeContainers {
                             Interlocked.Exchange(ref firstFreeTLS[thisTLSIndex], (idx + 1) + 1);
                             return idx;
                         }
-
+ 
                         if(idx == valueCapacity - 1) {
                             Interlocked.Exchange(ref firstFreeTLS[thisTLSIndex], 0);
                             return idx;
                         }
                     }
-
+ 
                     Interlocked.Exchange(ref firstFreeTLS[thisTLSIndex], 0);
                     // Could not find an index, try to steal one from another TLS
                     for(bool iterateAgain = true; iterateAgain;) {
@@ -288,8 +288,8 @@ namespace NativeContainers {
             nextPtrs[idx] = 0;
             return idx;
         }
-        
-                
+ 
+         
         void GrowHashSet<T>(int newCapacity, Allocator allocator) where T : struct {
             int newBucketCapacity = math.ceilpow2(newCapacity * 2);
             if(newCapacity == valueCapacity && newBucketCapacity == (bucketCapacityMask + 1)) {
@@ -298,17 +298,17 @@ namespace NativeContainers {
             if(valueCapacity > newCapacity) {
                 throw new ArgumentException("Shrinking a hashset is not supported");
             }
-
+ 
             int nextOffset, bucketOffset;
             int totalSize = CalculateDataSize<T>(newCapacity, newBucketCapacity, out nextOffset, out bucketOffset);
             byte* newValues = (byte*)UnsafeUtility.Malloc(totalSize, JobsUtility.CacheLineSize, allocator);
             byte* newNext = newValues + nextOffset;
             byte* newBuckets = newValues + bucketOffset;
-
+ 
             UnsafeUtility.MemClear(newNext, sizeof(int) * newCapacity);
             UnsafeUtility.MemCpy(newValues, values, UnsafeUtility.SizeOf<T>() * valueCapacity);
-            UnsafeUtility.MemCpy(newNext, next, UnsafeUtility.SizeOf<int>() * valueCapacity);
-
+            UnsafeUtility.MemCpy(newNext, next, sizeof(int) * valueCapacity);
+ 
             // Re-hash the buckets, first clear the new buckets, then reinsert.
             UnsafeUtility.MemClear(newBuckets, sizeof(int) * newBucketCapacity);
             int* oldBuckets = (int*)buckets;
@@ -324,7 +324,7 @@ namespace NativeContainers {
                     curValuesIdx = oldBuckets[oldBucket] - 1;
                 }
             }
-
+ 
             UnsafeUtility.Free(values, allocator);
             if(allocatedIndexLength > valueCapacity) {
                 allocatedIndexLength = valueCapacity;
@@ -337,3 +337,4 @@ namespace NativeContainers {
         }
     }
 }
+ 
